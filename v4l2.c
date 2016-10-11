@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <assert.h>
 #include <getopt.h>
@@ -14,7 +15,40 @@
 #include <asm/types.h>
 #include <linux/videodev2.h>
 #include <linux/fb.h>
+#include <signal.h>
+
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
+
+#define IMG_WIDTH       640
+#define IMG_HEIGHT      480
+#define BYTES_PER_PIXEL 3
+
+#pragma pack(2)
+typedef struct tagBITMAPFILEHEADER { /* bmfh */
+    unsigned short bfType;        // 4D42
+    unsigned int bfSize;       // 
+    unsigned short bfReserved1; 
+    unsigned short bfReserved2; 
+    unsigned int bfOffBits;    // 14 + 40
+} BITMAPFILEHEADER;
+
+typedef struct tagBITMAPINFOHEADER { /* bmih */
+    unsigned int biSize; 
+    unsigned int biWidth; 
+    unsigned int biHeight; 
+    unsigned short biPlanes; 
+    unsigned short biBitCount; 
+    unsigned int biCompression; 
+    unsigned int biSizeImage; 
+    unsigned int biXPelsPerMeter; 
+    unsigned int biYPelsPerMeter; 
+    unsigned int biClrUsed; 
+    unsigned int biClrImportant;
+} BITMAPINFOHEADER;
+#pragma pack()
+
+BITMAPFILEHEADER bfh;
+BITMAPINFOHEADER bih;
 
 struct buffer {
     void * start;
@@ -31,6 +65,47 @@ static struct fb_var_screeninfo vinfo;
 static struct fb_fix_screeninfo finfo;
 static char *fbp=NULL;
 static long screensize=0;
+
+static bool run_flag = false;
+
+static void save_bmp_image(const unsigned char *pbuf)
+{
+    int fd = -1;
+    int ret = -1;
+
+    int img_size = IMG_WIDTH * IMG_HEIGHT * BYTES_PER_PIXEL;
+
+    memset(&bfh, 0x00, sizeof(bfh));
+    memset(&bih, 0x00, sizeof(bih));
+
+    bfh.bfType = 0x4D42;
+    bfh.bfSize = 14 + 40 + img_size;
+    bfh.bfOffBits = 14 + 40;
+
+    bih.biSize = 40;
+    bih.biWidth = IMG_WIDTH;
+    bih.biHeight = IMG_HEIGHT;
+    bih.biPlanes = 1;
+    bih.biBitCount = BYTES_PER_PIXEL << 3;
+    bih.biCompression = 0;
+    bih.biSizeImage = 0;
+
+    fd = open("./test.bmp", O_RDWR | O_TRUNC | O_CREAT, S_IRUSR | S_IWUSR);
+    if(fd < 0)
+        perror("open error");
+
+    ret = write(fd, &bfh, sizeof(bfh));
+    ret = write(fd, &bih, sizeof(bih));
+    ret = write(fd, pbuf, img_size);
+
+    close(fd);
+}
+
+static void sig_handler(int key)
+{
+    fprintf(stdout, "\nGet a signal: %d\n", key);
+    run_flag = false;
+}
 
 static void errno_exit (const char * s)
 {
@@ -52,51 +127,45 @@ inline int clip(int value, int min, int max) {
 
 static void process_image (const void * p)
 {
-    //ConvertYUVToRGB32
-    unsigned char* in=(char*)p;
-    int width=640;
-    int height=480;
-    int istride=1280;
-    int x,y,j;
-    int y0,u,y1,v,r,g,b;
-    long location=0;
+    static int flag = 0;
 
-    for ( y = 100; y < height + 100; ++y) {
-        for (j = 0, x=100; j < width * 2 ; j += 4,x +=2) {
-            location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) +
-                (y+vinfo.yoffset) * finfo.line_length;
-
-            y0 = in[j];
-            u = in[j + 1] - 128;
-            y1 = in[j + 2];
-            v = in[j + 3] - 128;
-
-            r = (298 * y0 + 409 * v + 128) >> 8;
-            g = (298 * y0 - 100 * u - 208 * v + 128) >> 8;
-            b = (298 * y0 + 516 * u + 128) >> 8;
-
-            fbp[ location + 0] = clip(b, 0, 255);
-            fbp[ location + 1] = clip(g, 0, 255);
-            fbp[ location + 2] = clip(r, 0, 255);
-            fbp[ location + 3] = 255;
-
-            r = (298 * y1 + 409 * v + 128) >> 8;
-            g = (298 * y1 - 100 * u - 208 * v + 128) >> 8;
-            b = (298 * y1 + 516 * u + 128) >> 8;
-
-            fbp[ location + 4] = clip(b, 0, 255);
-            fbp[ location + 5] = clip(g, 0, 255);
-            fbp[ location + 6] = clip(r, 0, 255);
-            fbp[ location + 7] = 255;
-        }
-        in +=istride;
+    if(0 == flag){
+        flag = 1;
+        save_bmp_image(p);
     }
+#if 0
+
+#else
+    int x;
+    int y;
+    int j;
+    int istride = IMG_WIDTH * BYTES_PER_PIXEL;
+    unsigned int index;
+    unsigned char r, g, b;
+    unsigned char *in = (unsigned char *)p;
+
+    for(y = 100; y < IMG_HEIGHT + 100; y++){
+        for(j = 0, x = 100; x < IMG_WIDTH + 100; j += 3, x++){
+            index = (y + vinfo.yoffset)*finfo.line_length + (x + vinfo.xoffset)*(vinfo.bits_per_pixel >> 3);
+            r = in[j + 0];
+            g = in[j + 1];
+            b = in[j + 2];
+            fbp[index + 0] = clip(r, 0, 255);
+            fbp[index + 1] = clip(g, 0, 255);
+            fbp[index + 2] = clip(b, 0, 255);
+            fbp[index + 3] = 0x00;              // unused
+        }
+
+        in += istride;
+    }
+#endif
 }
 
 static int read_frame (void)
 {
     struct v4l2_buffer buf;
     unsigned int i;
+    static int cnt = 0;
 
     CLEAR (buf);
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -113,7 +182,10 @@ static int read_frame (void)
     }
 
     assert (buf.index < n_buffers);
-    assert (buf.field ==V4L2_FIELD_NONE);
+    fprintf(stdout, "  Get %06d packages[index:%d length:%ld]", ++cnt, buf.index, buf.length);
+    fprintf(stdout, "\r");
+    fflush(stdout);
+//    assert (buf.field ==V4L2_FIELD_NONE);
     process_image (buffers[buf.index].start);
     if (-1 == xioctl (fd, VIDIOC_QBUF, &buf))
         errno_exit ("VIDIOC_QBUF");
@@ -124,10 +196,8 @@ static int read_frame (void)
 static void run (void)
 {
     unsigned int count;
-    int frames;
-    frames = 30 * time_in_sec_capture;
 
-    while (frames-- > 0) {
+    while (run_flag) {
         for (;;) {
             fd_set fds;
             struct timeval tv;
@@ -149,10 +219,12 @@ static void run (void)
                 exit (EXIT_FAILURE);
             }
 
-            if (read_frame ())
+            if (read_frame())
                 break;
         }
     }
+
+    fprintf(stdout, "Capture done\n");
 }
 
 static void stop_capturing (void)
@@ -211,12 +283,13 @@ static void init_mmap (void)
         printf("Error: failed to map framebuffer device to memory.\n");
         exit (EXIT_FAILURE) ;
     }
-    memset(fbp, 0, screensize);
+ //   memset(fbp, 0, screensize);
 
     CLEAR (req);
     req.count = 4;
     req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     req.memory = V4L2_MEMORY_MMAP;
+ //   req.memory = V4L2_MEMORY_DMABUF;
     if (-1 == xioctl (fd, VIDIOC_REQBUFS, &req)) {
         if (EINVAL == errno) {
             fprintf (stderr, "%s does not support memory mapping\n", dev_name);
@@ -270,12 +343,20 @@ static bool init_device (void)
         printf("Error reading fixed information.\n");
         return false;
     }
+    fprintf(stdout, "Screen fix info:\n");
+    fprintf(stdout, "\ttype: %d\n", finfo.type);
+    fprintf(stdout, "\tlength of a line: %d\n", finfo.line_length);
 
     // Get variable screen information
     if (-1==xioctl(fbfd, FBIOGET_VSCREENINFO, &vinfo)) {
         printf("Error reading variable information.\n");
         return false;
     }
+    fprintf(stdout, "Screen var info:\n");
+    fprintf(stdout, "\tvisible resolution: %dx%d\n", vinfo.xres, vinfo.yres);
+    fprintf(stdout, "\tvirtual resolution: %dx%d\n", vinfo.xres_virtual, vinfo.yres_virtual);
+    fprintf(stdout, "\toffset x: %d, y: %d\n", vinfo.xoffset, vinfo.yoffset);
+    fprintf(stdout, "\tbits_per_pixel: %d\n", vinfo.bits_per_pixel);
     screensize = vinfo.xres * vinfo.yres * vinfo.bits_per_pixel / 8;
 
     if (-1 == xioctl (fd, VIDIOC_QUERYCAP, &cap)) {
@@ -317,8 +398,12 @@ static bool init_device (void)
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.width = 640;
     fmt.fmt.pix.height = 480;
+#if 0
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
-    fmt.fmt.pix.field = V4L2_FIELD_NONE;
+#else
+    fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_BGR24;
+#endif
+    fmt.fmt.pix.field = V4L2_FIELD_ANY;
 
     if (-1 == xioctl (fd, VIDIOC_S_FMT, &fmt))
         perror("VIDIOC_S_FMT");
@@ -423,7 +508,10 @@ int main (int argc,char ** argv)
 
     init_device ();
     start_capturing ();
-    run ();
+
+    run_flag = true;
+    signal(SIGINT, sig_handler);
+    run();
     stop_capturing ();
     uninit_device ();
     close_device ();
