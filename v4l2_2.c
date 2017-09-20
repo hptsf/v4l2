@@ -65,7 +65,7 @@ static int xioctl (int fd, int request, void * arg)
 
 static void process_image (const void * p)
 {
-    static cnt = 0;
+    static int cnt = 0;
 
     fprintf(stdout, "Get %06d packages", ++cnt);
     fprintf(stdout, "\r");

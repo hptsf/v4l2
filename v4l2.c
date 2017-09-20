@@ -63,7 +63,7 @@ static int time_in_sec_capture=5;
 static int fbfd = -1;
 static struct fb_var_screeninfo vinfo;
 static struct fb_fix_screeninfo finfo;
-static char *fbp=NULL;
+static char *fbp = NULL;
 static long screensize=0;
 
 static bool run_flag = false;
@@ -121,7 +121,7 @@ static int xioctl (int fd,int request,void * arg)
     return r;
 }
 
-inline int clip(int value, int min, int max) {
+int clip(int value, int min, int max) {
     return (value > max ? max : value < min ? min : value);
 }
 
@@ -182,7 +182,7 @@ static int read_frame (void)
     }
 
     assert (buf.index < n_buffers);
-    fprintf(stdout, "  Get %06d packages[index:%d length:%ld]", ++cnt, buf.index, buf.length);
+    fprintf(stdout, "  Get %06d packages[index:%d length:%u]", ++cnt, buf.index, buf.length);
     fprintf(stdout, "\r");
     fflush(stdout);
 //    assert (buf.field ==V4L2_FIELD_NONE);
@@ -279,7 +279,7 @@ static void init_mmap (void)
 
     //mmap framebuffer
     fbp = (char *)mmap(NULL,screensize, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
-    if ((int)fbp == -1) {
+    if (fbp == (void *)-1) {
         printf("Error: failed to map framebuffer device to memory.\n");
         exit (EXIT_FAILURE) ;
     }
