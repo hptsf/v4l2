@@ -16,6 +16,7 @@
 #include <linux/videodev2.h>
 #include <linux/fb.h>
 #include <signal.h>
+#include "sock.h"
 
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
 
@@ -67,6 +68,7 @@ static char *fbp = NULL;
 static long screensize=0;
 
 static bool run_flag = false;
+static int sockfd = -1;
 
 static void save_bmp_image(const unsigned char *pbuf)
 {
@@ -128,13 +130,15 @@ int clip(int value, int min, int max) {
 static void process_image (const void * p)
 {
     static int flag = 0;
-
+#if 0
     if(0 == flag){
         flag = 1;
         save_bmp_image(p);
     }
-#if 0
+#endif
 
+#if 1
+    sock_send(sockfd, "test msg", 8);
 #else
     int x;
     int y;
@@ -270,6 +274,8 @@ static void uninit_device (void)
         exit (EXIT_FAILURE) ;
     }
     free (buffers);
+
+    sock_uninit(&sockfd);
 }
 
 
@@ -409,6 +415,7 @@ static bool init_device (void)
         perror("VIDIOC_S_FMT");
 
     init_mmap ();
+    sockfd = sock_init();
 	return true;
 }
 

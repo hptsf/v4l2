@@ -20,7 +20,7 @@ int sock_init(void)
     sock = socket(AF_INET, SOCK_STREAM, 0);
     if(sock < 0){
         perror("socket error: ");
-        return sock;
+        goto out;
     }
     fprintf(stdout, "Create socket success\n");
 
@@ -31,17 +31,18 @@ int sock_init(void)
     ret = inet_aton(DEFAULT_IP, (struct in_addr *) &server_addr.sin_addr.s_addr);
     if(0 == ret){
         perror("inet aton error");
+        close(sock);
         goto out;
     }
     ret = connect(sock, (struct sockaddr *)&server_addr, sizeof(server_addr));
     if(0 != ret){
         perror("connect error");
+        close(sock);
         goto out;
     }
     fprintf(stdout, "connect to server %s success\n", DEFAULT_IP);
 
 out:
-    close(sock);
     return sock;
 }
 
